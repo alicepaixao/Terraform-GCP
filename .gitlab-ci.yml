@@ -1,0 +1,115 @@
+before_script:
+  - cd $CI_ENVIRONMENT_NAME
+  - terraform init -input=false
+
+.validate_template: &validate_definition
+  script:
+    - terraform validate -var-file variables.tfvars
+
+.plan_template: &plan_definition
+  script:
+    - terraform plan -var-file variables.tfvars -out=$CI_ENVIRONMENT_NAME-plan.tfplan -input=false
+  artifacts:
+    paths:
+      - $CI_ENVIRONMENT_NAME/$CI_ENVIRONMENT_NAME-plan.tfplan
+
+.apply_template: &apply_definition
+  script:
+    - terraform apply -input=false $CI_ENVIRONMENT_NAME-plan.tfplan
+  when: manual
+
+image:
+  name: hashicorp/terraform:0.11.11
+  entrypoint:
+    - '/usr/bin/env'
+    - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+
+variables:
+  TF_IN_AUTOMATION: "true"
+  GOOGLE_CREDENTIALS: ${GCP_ACCOUNT_CREDENTIALS}
+  TF_VAR_project_id: ${GCP_PROJECT_ID}
+  TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  TF_VAR_slack_auth_token : ${SLACK_AUTH_TOKEN}
+  TF_VAR_ssl_server_certificate : ${ORIGIN_CERT_STAGE}
+  TF_VAR_ssl_server_key: ${ORIGIN_KEY_STAGE}
+  TF_VAR_instana_agent_key: ${INSTANA_AGENT_KEY}
+  TF_VAR_auth0_client_id: ${AUTH0_CLIENT_ID}
+  TF_VAR_auth0_client_secret: ${AUTH0_CLIENT_SECRET}  
+  TF_VAR_auth0_default_role: ${AUTHO_DEFAULT_ROLE}
+  TF_VAR_auth0_default_password: ${AUTHO_DEFAULT_PASSWORD}
+  
+cache:
+  paths:
+    - '*/.terraform'
+    
+stages:
+  - validate
+  - build
+  - deploy
+
+################################
+# environment: test
+################################
+
+validate_test:
+  stage: validate
+  environment:
+    name: test
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+    
+  <<: *validate_definition
+
+plan_test:
+  stage: build
+  environment:
+    name: test
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+
+  <<: *plan_definition
+
+apply_test:
+  stage: deploy
+  environment:
+    name: test
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+
+  <<: *apply_definition
+  dependencies:
+    - plan_test
+  only:
+    - master
+
+################################
+# environment: staging
+################################
+
+validate_staging:
+  stage: validate
+  environment:
+    name: staging
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  <<: *validate_definition
+
+plan_staging:
+  stage: build
+  environment:
+    name: staging
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  <<: *plan_definition
+
+apply_staging:
+  stage: deploy
+  environment:
+    name: staging
+  variables:
+    TF_VAR_environment: ${CI_ENVIRONMENT_NAME}
+  <<: *apply_definition
+  dependencies:
+    - plan_staging
+  only:
+    - master
